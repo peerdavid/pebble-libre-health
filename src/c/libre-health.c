@@ -65,7 +65,7 @@ static void schedule_next_wakeup() {
     return;
   }
 
-  time_t future_time = time(NULL) +  15 * 60;
+  time_t future_time = time(NULL) +  60 * 60; // One Hour from now
   
   // Schedule the wakeup
   // notify_if_missed=true will alert the user if the watch was off during the time
