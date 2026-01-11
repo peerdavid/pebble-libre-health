@@ -2,39 +2,51 @@
 
 static Window *s_main_window;
 static TextLayer *s_text_layer;
-static int s_counter = 0;
 
 // Define message keys
-#define KEY_TEST_NUMBER 100
+#define KEY_STEP_COUNT 100
+#define KEY_HEART_RATE 101
+#define KEY_SLEEP 102
 
 static void send_message_to_phone() {
+  // Get health data
+  HealthMetric step_metric = HealthMetricStepCount;
+  HealthMetric sleep_metric = HealthMetricSleepSeconds;
+  
+  int steps = (int)health_service_sum_today(step_metric);
+  int heart_rate = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
+  int sleep_seconds = (int)health_service_sum_today(sleep_metric);
+  
   // Create a dictionary
   DictionaryIterator *iter;
   AppMessageResult result = app_message_outbox_begin(&iter);
   
   if (result == APP_MSG_OK) {
-    // Add the test number to the message
-    dict_write_int(iter, KEY_TEST_NUMBER, &s_counter, sizeof(s_counter), true);
+    // Add health data to the message
+    dict_write_int(iter, KEY_STEP_COUNT, &steps, sizeof(steps), true);
+    dict_write_int(iter, KEY_HEART_RATE, &heart_rate, sizeof(heart_rate), true);
+    dict_write_int(iter, KEY_SLEEP, &sleep_seconds, sizeof(sleep_seconds), true);
     
     // Send the message
     result = app_message_outbox_send();
     
     if (result == APP_MSG_OK) {
-      APP_LOG(APP_LOG_LEVEL_INFO, "Message sent successfully! Counter: %d", s_counter);
-      s_counter++;
+      text_layer_set_text(s_text_layer, "Sent health data!");
+      APP_LOG(APP_LOG_LEVEL_INFO, "Health data sent! Steps: %d, HR: %d, Sleep: %ds", 
+              steps, heart_rate, sleep_seconds);
     } else {
+      text_layer_set_text(s_text_layer, "Error sending\nhealth data");
       APP_LOG(APP_LOG_LEVEL_ERROR, "Error sending message: %d", (int)result);
     }
   } else {
+    text_layer_set_text(s_text_layer, "Error preparing\nmessage");
     APP_LOG(APP_LOG_LEVEL_ERROR, "Error preparing message: %d", (int)result);
   }
 }
 
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
   // Update the text layer
-  static char buffer[32];
-  snprintf(buffer, sizeof(buffer), "Sending: %d", s_counter);
-  text_layer_set_text(s_text_layer, buffer);
+  text_layer_set_text(s_text_layer, "Sending health\ndata...");
   
   // Send message to phone
   send_message_to_phone();
@@ -67,7 +79,7 @@ static void main_window_load(Window *window) {
   
   // Create text layer
   s_text_layer = text_layer_create(GRect(0, bounds.size.h / 2 - 40, bounds.size.w, 80));
-  text_layer_set_text(s_text_layer, "Press SELECT\nto send data");
+  text_layer_set_text(s_text_layer, "Press SELECT\nto send health");
   text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
   text_layer_set_font(s_text_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   layer_add_child(window_layer, text_layer_get_layer(s_text_layer));
