@@ -2,11 +2,17 @@
 
 static Window *s_main_window;
 static TextLayer *s_text_layer;
+static bool s_launched_by_wakeup = false;
 
 // Define message keys
 #define KEY_STEP_COUNT 100
 #define KEY_HEART_RATE 101
 #define KEY_SLEEP 102
+
+// Define Wakeup constants
+#define WAKEUP_COOKIE 717  // A random identifier for your wakeup events
+
+static void schedule_next_wakeup();
 
 static void send_message_to_phone() {
   // Get health data
@@ -31,76 +37,116 @@ static void send_message_to_phone() {
     result = app_message_outbox_send();
     
     if (result == APP_MSG_OK) {
-      text_layer_set_text(s_text_layer, "Sent health data!");
-      APP_LOG(APP_LOG_LEVEL_INFO, "Health data sent! Steps: %d, HR: %d, Sleep: %ds", 
+      // Update UI if visible
+      if (s_text_layer) {
+        text_layer_set_text(s_text_layer, "Sent health data!");
+      }
+      APP_LOG(APP_LOG_LEVEL_INFO, ">> DATA SENT: Steps: %d, HR: %d, Sleep: %ds", 
               steps, heart_rate, sleep_seconds);
     } else {
-      text_layer_set_text(s_text_layer, "Error sending\nhealth data");
       APP_LOG(APP_LOG_LEVEL_ERROR, "Error sending message: %d", (int)result);
     }
   } else {
-    text_layer_set_text(s_text_layer, "Error preparing\nmessage");
     APP_LOG(APP_LOG_LEVEL_ERROR, "Error preparing message: %d", (int)result);
   }
 }
 
-static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
-  // Update the text layer
-  text_layer_set_text(s_text_layer, "Sending health\ndata...");
+// --- Wakeup Logic ---
+
+static void schedule_next_wakeup() {
+  // Check if we already have a wakeup scheduled to avoid duplicates
+  WakeupId id = 0;
+  time_t timestamp = 0;
   
-  // Send message to phone
+  // wakeup_query checks if a wakeup with our specific cookie exists
+  if (wakeup_query(WAKEUP_COOKIE, &timestamp)) {
+    // Already scheduled, no need to do anything
+    // APP_LOG(APP_LOG_LEVEL_DEBUG, "Wakeup already scheduled for %d", (int)timestamp);
+    return;
+  }
+
+  time_t future_time = time(NULL) +  15 * 60;
+  
+  // Schedule the wakeup
+  // notify_if_missed=true will alert the user if the watch was off during the time
+  id = wakeup_schedule(future_time, WAKEUP_COOKIE, true);
+  
+  if (id >= 0) {
+    APP_LOG(APP_LOG_LEVEL_INFO, ">> NEXT WAKEUP SCHEDULED for: %d (in 60s)", (int)future_time);
+  } else {
+    APP_LOG(APP_LOG_LEVEL_ERROR, "FAILED to schedule wakeup: %d", (int)id);
+  }
+}
+
+static void wakeup_handler(WakeupId id, int32_t cookie) {
+  // This handler is called if the app is ALREADY running when the timer fires
+  APP_LOG(APP_LOG_LEVEL_INFO, "Wakeup triggered while app open!");
+  
   send_message_to_phone();
+  schedule_next_wakeup();
+}
+
+// --- Existing Handlers ---
+
+static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
+  text_layer_set_text(s_text_layer, "Sending health\ndata...");
+  send_message_to_phone();
+  schedule_next_wakeup(); // Ensure scheduling is active on manual click too
 }
 
 static void click_config_provider(void *context) {
-  // Register the select button (middle button) click handler
   window_single_click_subscribe(BUTTON_ID_SELECT, select_click_handler);
 }
 
 static void outbox_sent_handler(DictionaryIterator *iterator, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "Message confirmed sent to phone!");
+  APP_LOG(APP_LOG_LEVEL_INFO, "AppMessage: Delivery Confirmed.");
+  
+  // If launched by wakeup, close the app after successful send
+  if (s_launched_by_wakeup) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "Auto-scheduled send complete. Closing app...");
+    window_stack_pop_all(false);
+  }
 }
 
 static void outbox_failed_handler(DictionaryIterator *iterator, AppMessageResult reason, void *context) {
-  APP_LOG(APP_LOG_LEVEL_ERROR, "Failed to send message: %d", (int)reason);
+  APP_LOG(APP_LOG_LEVEL_ERROR, "AppMessage: Delivery Failed: %d", (int)reason);
 }
 
 static void inbox_received_handler(DictionaryIterator *iterator, void *context) {
-  APP_LOG(APP_LOG_LEVEL_INFO, "Message received from phone");
+  APP_LOG(APP_LOG_LEVEL_INFO, "AppMessage: Received message");
 }
 
 static void inbox_dropped_handler(AppMessageResult reason, void *context) {
-  APP_LOG(APP_LOG_LEVEL_ERROR, "Message dropped: %d", (int)reason);
+  APP_LOG(APP_LOG_LEVEL_ERROR, "AppMessage: Dropped: %d", (int)reason);
 }
 
 static void main_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect bounds = layer_get_bounds(window_layer);
   
-  // Create text layer
   s_text_layer = text_layer_create(GRect(0, bounds.size.h / 2 - 40, bounds.size.w, 80));
-  text_layer_set_text(s_text_layer, "Press SELECT\nto send health");
+  text_layer_set_text(s_text_layer, "LibreHealth\nActive\nSELECT to trigger");
   text_layer_set_text_alignment(s_text_layer, GTextAlignmentCenter);
   text_layer_set_font(s_text_layer, fonts_get_system_font(FONT_KEY_GOTHIC_24_BOLD));
   layer_add_child(window_layer, text_layer_get_layer(s_text_layer));
 }
 
 static void main_window_unload(Window *window) {
-  // Destroy text layer
   text_layer_destroy(s_text_layer);
 }
 
 static void init() {
-  // Register AppMessage handlers
+  // 1. Open AppMessage
   app_message_register_inbox_received(inbox_received_handler);
   app_message_register_inbox_dropped(inbox_dropped_handler);
   app_message_register_outbox_sent(outbox_sent_handler);
   app_message_register_outbox_failed(outbox_failed_handler);
-  
-  // Open AppMessage with buffer sizes
   app_message_open(128, 128);
-  
-  // Create main Window
+
+  // 2. Subscribe to Wakeup Service (for when app is already open)
+  wakeup_service_subscribe(wakeup_handler);
+
+  // 3. Create Window
   s_main_window = window_create();
   window_set_click_config_provider(s_main_window, click_config_provider);
   window_set_window_handlers(s_main_window, (WindowHandlers) {
@@ -108,10 +154,37 @@ static void init() {
     .unload = main_window_unload,
   });
   window_stack_push(s_main_window, true);
+
+  // 4. Handle Launch Reason
+  if (launch_reason() == APP_LAUNCH_WAKEUP) {
+    // The app was started by the system because the timer fired
+    WakeupId id = 0;
+    int32_t cookie = 0;
+    
+    // Get details about the wakeup
+    wakeup_get_launch_event(&id, &cookie);
+    
+    APP_LOG(APP_LOG_LEVEL_INFO, ">> APP LAUNCHED BY WAKEUP (Cookie: %d)", (int)cookie);
+    
+    // Mark that we were launched by wakeup
+    s_launched_by_wakeup = true;
+    
+    // Send data immediately
+    send_message_to_phone();
+    
+    // Schedule the NEXT wakeup to keep the loop going
+    schedule_next_wakeup();
+    
+  } else {
+    // The app was started by the user manually
+    APP_LOG(APP_LOG_LEVEL_INFO, ">> APP LAUNCHED MANUALLY");
+    
+    // Start the loop
+    schedule_next_wakeup();
+  }
 }
 
 static void deinit() {
-  // Destroy main Window
   window_destroy(s_main_window);
 }
 
