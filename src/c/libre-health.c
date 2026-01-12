@@ -78,7 +78,7 @@ static void schedule_next_wakeup() {
 
   wakeup_cancel_all();
   
-  time_t future_time = time(NULL) + /60 * 60; // One Hour from now
+  time_t future_time = time(NULL) + 60 * 60; // One Hour from now
   
   WakeupId id = wakeup_schedule(future_time, WAKEUP_COOKIE, true);
   
