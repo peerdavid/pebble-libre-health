@@ -19,6 +19,12 @@ static bool s_wakeup_enabled = false;
 
 static void schedule_next_wakeup();
 
+static void reset_text_layer() {
+  if (s_text_layer) {
+    text_layer_set_text(s_text_layer, "LibreHealth\n\nUP: Enable\nSELECT: Send\nDOWN: Disable");
+  }
+}
+
 static void send_message_to_phone() {
   // Get health data
   HealthMetric step_metric = HealthMetricStepCount;
@@ -42,10 +48,6 @@ static void send_message_to_phone() {
     result = app_message_outbox_send();
     
     if (result == APP_MSG_OK) {
-      // Update UI if visible
-      if (s_text_layer) {
-        text_layer_set_text(s_text_layer, "Sent health data!");
-      }
       APP_LOG(APP_LOG_LEVEL_INFO, ">> DATA SENT: Steps: %d, HR: %d, Sleep: %ds", 
               steps, heart_rate, sleep_seconds);
     } else {
@@ -76,7 +78,7 @@ static void schedule_next_wakeup() {
 
   wakeup_cancel_all();
   
-  time_t future_time = time(NULL) + 15; //60 * 60; // One Hour from now
+  time_t future_time = time(NULL) + /60 * 60; // One Hour from now
   
   WakeupId id = wakeup_schedule(future_time, WAKEUP_COOKIE, true);
   
@@ -97,10 +99,16 @@ static void wakeup_handler(WakeupId id, int32_t cookie) {
 
 // --- Existing Handlers ---
 
+static void reset_timer_callback(void *data) {
+  reset_text_layer();
+}
+
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
-  text_layer_set_text(s_text_layer, "Sending health\ndata...");
+  text_layer_set_text(s_text_layer, "Sending data...");
   send_message_to_phone();
-  schedule_next_wakeup();
+  
+  // Reset screen after 2 seconds
+  app_timer_register(2000, reset_timer_callback, NULL);
 }
 
 static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
@@ -110,6 +118,9 @@ static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
   update_status_display();
   schedule_next_wakeup();
   APP_LOG(APP_LOG_LEVEL_INFO, "Hourly wakeup ENABLED by user");
+  
+  // Reset screen after 2 seconds
+  app_timer_register(2000, reset_timer_callback, NULL);
 }
 
 static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
@@ -119,6 +130,9 @@ static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
   update_status_display();
   schedule_next_wakeup(); // This will cancel all wakeups
   APP_LOG(APP_LOG_LEVEL_INFO, "Hourly wakeup DISABLED by user");
+  
+  // Reset screen after 2 seconds
+  app_timer_register(2000, reset_timer_callback, NULL);
 }
 
 static void click_config_provider(void *context) {
@@ -212,6 +226,9 @@ static void init() {
     
     // Mark that we were launched by wakeup
     s_launched_by_wakeup = true;
+    
+    // Show different message for auto-send
+    text_layer_set_text(s_text_layer, "LibreHealth\nsending data...");
     
     // Send data immediately
     send_message_to_phone();
