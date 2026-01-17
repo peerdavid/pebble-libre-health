@@ -5,6 +5,7 @@ static TextLayer *s_text_layer;
 static TextLayer *s_status_layer;
 static bool s_launched_by_wakeup = false;
 static bool s_wakeup_enabled = false;
+static AppTimer *s_close_timer = NULL;
 
 // Define message keys
 #define KEY_STEP_COUNT 100
@@ -103,6 +104,12 @@ static void reset_timer_callback(void *data) {
   reset_text_layer();
 }
 
+static void close_app_timeout_callback(void *data) {
+  APP_LOG(APP_LOG_LEVEL_INFO, "Timeout reached - no connection. Closing app...");
+  s_close_timer = NULL;
+  window_stack_pop_all(false);
+}
+
 static void select_click_handler(ClickRecognizerRef recognizer, void *context) {
   text_layer_set_text(s_text_layer, "Sending data...");
   send_message_to_phone();
@@ -146,6 +153,11 @@ static void outbox_sent_handler(DictionaryIterator *iterator, void *context) {
   
   // If launched by wakeup, close the app after successful send
   if (s_launched_by_wakeup) {
+    // Cancel the timeout timer if it exists
+    if (s_close_timer) {
+      app_timer_cancel(s_close_timer);
+      s_close_timer = NULL;
+    }
     APP_LOG(APP_LOG_LEVEL_INFO, "Auto-scheduled send complete. Closing app...");
     window_stack_pop_all(false);
   }
@@ -153,6 +165,12 @@ static void outbox_sent_handler(DictionaryIterator *iterator, void *context) {
 
 static void outbox_failed_handler(DictionaryIterator *iterator, AppMessageResult reason, void *context) {
   APP_LOG(APP_LOG_LEVEL_ERROR, "AppMessage: Delivery Failed: %d", (int)reason);
+  
+  // If launched by wakeup and delivery failed (e.g., no connection), close after timeout
+  if (s_launched_by_wakeup && !s_close_timer) {
+    APP_LOG(APP_LOG_LEVEL_INFO, "No connection detected. Setting timeout to close app...");
+    s_close_timer = app_timer_register(5000, close_app_timeout_callback, NULL); // 5 seconds timeout
+  }
 }
 
 static void inbox_received_handler(DictionaryIterator *iterator, void *context) {
@@ -246,6 +264,11 @@ static void init() {
 }
 
 static void deinit() {
+  // Cancel any pending timers
+  if (s_close_timer) {
+    app_timer_cancel(s_close_timer);
+    s_close_timer = NULL;
+  }
   window_destroy(s_main_window);
 }
 
