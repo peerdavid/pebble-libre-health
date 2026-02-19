@@ -8,15 +8,18 @@ static bool s_wakeup_enabled = false;
 static AppTimer *s_close_timer = NULL;
 
 // Define message keys
-#define KEY_STEP_COUNT 100
 #define KEY_HEART_RATE 101
 #define KEY_SLEEP 102
+#define KEY_STEP_HOUR_0 200
 
 // Define Wakeup constants
 #define WAKEUP_COOKIE 717  // A random identifier for your wakeup events
 
-// Persistent storage key
+// Persistent storage keys
 #define PERSIST_KEY_WAKEUP_ENABLED 1
+#define PERSIST_KEY_LAST_STEPS 10
+#define PERSIST_KEY_LAST_DAY 11
+#define PERSIST_KEY_HOUR_0 20  // 20..43 for hours 0..23
 
 static void schedule_next_wakeup();
 
@@ -26,31 +29,69 @@ static void reset_text_layer() {
   }
 }
 
+static void update_hourly_steps() {
+  time_t now = time(NULL);
+  struct tm *now_tm = localtime(&now);
+  int current_hour = now_tm->tm_hour;
+  int current_day = now_tm->tm_yday;
+
+  // Detect day change — reset all hourly buckets
+  int last_day = persist_exists(PERSIST_KEY_LAST_DAY) ? persist_read_int(PERSIST_KEY_LAST_DAY) : -1;
+  if (last_day != current_day) {
+    for (int h = 0; h < 24; h++) {
+      persist_write_int(PERSIST_KEY_HOUR_0 + h, 0);
+    }
+    persist_write_int(PERSIST_KEY_LAST_STEPS, 0);
+    persist_write_int(PERSIST_KEY_LAST_DAY, current_day);
+    APP_LOG(APP_LOG_LEVEL_INFO, "New day detected, reset hourly buckets");
+  }
+
+  // Compute delta since last update
+  int current_total = (int)health_service_sum_today(HealthMetricStepCount);
+  int last_total = persist_exists(PERSIST_KEY_LAST_STEPS) ? persist_read_int(PERSIST_KEY_LAST_STEPS) : 0;
+  int delta = current_total - last_total;
+
+  if (delta > 0) {
+    int hour_steps = persist_exists(PERSIST_KEY_HOUR_0 + current_hour)
+                     ? persist_read_int(PERSIST_KEY_HOUR_0 + current_hour) : 0;
+    hour_steps += delta;
+    persist_write_int(PERSIST_KEY_HOUR_0 + current_hour, hour_steps);
+    APP_LOG(APP_LOG_LEVEL_INFO, "Hour %d: +%d steps (now %d)", current_hour, delta, hour_steps);
+  }
+
+  persist_write_int(PERSIST_KEY_LAST_STEPS, current_total);
+}
+
 static void send_message_to_phone() {
-  // Get health data
-  HealthMetric step_metric = HealthMetricStepCount;
-  HealthMetric sleep_metric = HealthMetricSleepSeconds;
-  
-  int steps = (int)health_service_sum_today(step_metric);
+  // Update hourly buckets before sending
+  update_hourly_steps();
+
+  // Read all stored hourly values
+  int hourly_steps[24];
+  for (int h = 0; h < 24; h++) {
+    hourly_steps[h] = persist_exists(PERSIST_KEY_HOUR_0 + h)
+                      ? persist_read_int(PERSIST_KEY_HOUR_0 + h) : 0;
+  }
+
   int heart_rate = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
-  int sleep_seconds = (int)health_service_sum_today(sleep_metric);
-  
-  // Create a dictionary
+  int sleep_seconds = (int)health_service_sum_today(HealthMetricSleepSeconds);
+
+  // Open outbox and write everything quickly
   DictionaryIterator *iter;
   AppMessageResult result = app_message_outbox_begin(&iter);
-  
+
   if (result == APP_MSG_OK) {
-    // Add health data to the message
-    dict_write_int(iter, KEY_STEP_COUNT, &steps, sizeof(steps), true);
+    for (int h = 0; h < 24; h++) {
+      dict_write_int(iter, KEY_STEP_HOUR_0 + h, &hourly_steps[h], sizeof(int), true);
+    }
+
     dict_write_int(iter, KEY_HEART_RATE, &heart_rate, sizeof(heart_rate), true);
     dict_write_int(iter, KEY_SLEEP, &sleep_seconds, sizeof(sleep_seconds), true);
-    
-    // Send the message
+
     result = app_message_outbox_send();
-    
+
     if (result == APP_MSG_OK) {
-      APP_LOG(APP_LOG_LEVEL_INFO, ">> DATA SENT: Steps: %d, HR: %d, Sleep: %ds", 
-              steps, heart_rate, sleep_seconds);
+      APP_LOG(APP_LOG_LEVEL_INFO, ">> DATA SENT: HR: %d, Sleep: %ds", heart_rate, sleep_seconds);
     } else {
       APP_LOG(APP_LOG_LEVEL_ERROR, "Error sending message: %d", (int)result);
     }
@@ -217,7 +258,7 @@ static void init() {
   app_message_register_inbox_dropped(inbox_dropped_handler);
   app_message_register_outbox_sent(outbox_sent_handler);
   app_message_register_outbox_failed(outbox_failed_handler);
-  app_message_open(128, 128);
+  app_message_open(1024, 1024);
 
   // 3. Subscribe to Wakeup Service (for when app is already open)
   wakeup_service_subscribe(wakeup_handler);
