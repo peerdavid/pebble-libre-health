@@ -66,6 +66,13 @@ static void send_message_to_phone() {
   // Update hourly buckets before sending
   update_hourly_steps();
 
+  // Check Bluetooth connection before sending
+  if (!bluetooth_connection_service_peek()) {
+    APP_LOG(APP_LOG_LEVEL_WARNING, "No phone connection. Data not sent.");
+    text_layer_set_text(s_text_layer, "No phone connection!");
+    return;
+  }
+
   // Read all stored hourly values
   int hourly_steps[24];
   for (int h = 0; h < 24; h++) {
@@ -91,7 +98,7 @@ static void send_message_to_phone() {
     result = app_message_outbox_send();
 
     if (result == APP_MSG_OK) {
-      APP_LOG(APP_LOG_LEVEL_INFO, ">> DATA SENT: HR: %d, Sleep: %ds", heart_rate, sleep_seconds);
+      APP_LOG(APP_LOG_LEVEL_INFO, ">> DATA SENT: 24 STEP VALUES, HR: %d, Sleep: %ds", heart_rate, sleep_seconds);
     } else {
       APP_LOG(APP_LOG_LEVEL_ERROR, "Error sending message: %d", (int)result);
     }
