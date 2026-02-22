@@ -10,6 +10,10 @@ static AppTimer *s_close_timer = NULL;
 // Define message keys
 #define KEY_HEART_RATE 101
 #define KEY_SLEEP 102
+#define KEY_CURRENT_HOUR 103
+#define KEY_CURRENT_DAY 104
+#define KEY_CURRENT_MONTH 105
+#define KEY_CURRENT_YEAR 106
 #define KEY_STEP_HOUR_0 200
 
 // Define Wakeup constants
@@ -83,6 +87,13 @@ static void send_message_to_phone() {
   int heart_rate = (int)health_service_peek_current_value(HealthMetricHeartRateBPM);
   int sleep_seconds = (int)health_service_sum_today(HealthMetricSleepSeconds);
 
+  time_t now = time(NULL);
+  struct tm *now_tm = localtime(&now);
+  int current_day = now_tm->tm_mday;
+  int current_hour = now_tm->tm_hour;
+  int current_month = now_tm->tm_mon; // 0-indexed month
+  int current_year = now_tm->tm_year + 1900;
+
   // Open outbox and write everything quickly
   DictionaryIterator *iter;
   AppMessageResult result = app_message_outbox_begin(&iter);
@@ -94,11 +105,15 @@ static void send_message_to_phone() {
 
     dict_write_int(iter, KEY_HEART_RATE, &heart_rate, sizeof(heart_rate), true);
     dict_write_int(iter, KEY_SLEEP, &sleep_seconds, sizeof(sleep_seconds), true);
+    dict_write_int(iter, KEY_CURRENT_DAY, &current_day, sizeof(current_day), true);
+    dict_write_int(iter, KEY_CURRENT_HOUR, &current_hour, sizeof(current_hour), true);
+    dict_write_int(iter, KEY_CURRENT_MONTH, &current_month, sizeof(current_month), true);
+    dict_write_int(iter, KEY_CURRENT_YEAR, &current_year, sizeof(current_year), true);
 
     result = app_message_outbox_send();
 
     if (result == APP_MSG_OK) {
-      APP_LOG(APP_LOG_LEVEL_INFO, ">> DATA SENT: 24 STEP VALUES, HR: %d, Sleep: %ds", heart_rate, sleep_seconds);
+      APP_LOG(APP_LOG_LEVEL_INFO, ">> DATA SENT: 24 STEP VALUES, HR: %d, Sleep: %ds, Day: %d, Hour: %d, Month: %d, Year: %d", heart_rate, sleep_seconds, current_day, current_hour, current_month, current_year);
     } else {
       APP_LOG(APP_LOG_LEVEL_ERROR, "Error sending message: %d", (int)result);
     }
