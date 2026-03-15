@@ -22,7 +22,14 @@
       "watchface": false
     },
     "resources": {
-      "media": []
+      "media": [
+        {
+          "type": "bitmap",
+          "name": "APP_ICON",
+          "file": "icon.png",
+          "menuIcon": true
+        }
+      ]
     }
   }
 }
