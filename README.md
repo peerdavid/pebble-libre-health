@@ -2,7 +2,7 @@
 
 Pebble companion app for Libre Health, the open-source, local-only health tracker for Android.
 
-Warning: Requires the LibreHealth Android companion app.
+Warning: Requires the LibreHealth Android companion app. There you can connect to pebble by clicking the upper right dots, then "Pebble".
 
 Automatically syncs your Pebble health data — heart rate, step counts (broken down by hour), and sleep — to the Libre Health app on your phone. Enable automatic mode and the app wakes up every 30 minutes to send your latest stats, no manual intervention needed.
 
@@ -24,5 +24,5 @@ Automatically syncs your Pebble health data — heart rate, step counts (broken 
 
 
 ## Coffee
-If you like the app and want to buy me a coffee:
+If you like the app and want to buy me a coffee (or simply click the website button in the pebble store):
 https://www.paypal.com/donate/?hosted_button_id=Y4PDJU84LC3N2
