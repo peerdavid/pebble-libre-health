@@ -22,6 +22,8 @@ Automatically syncs your Pebble health data — heart rate, step counts (broken 
 - **SELECT:** Send data now
 - **DOWN:** Disable automatic sync
 
+## Companion App
+https://play.google.com/store/apps/details?id=tirol.peer.librehealth
 
 ## Coffee
 If you like the app and want to buy me a coffee (or simply click the website button in the pebble store):
