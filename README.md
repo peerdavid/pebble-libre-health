@@ -1,6 +1,6 @@
 # Libre Health
 
-Pebble companion app for Libre Health, the open-source, local-only health tracker for Android.
+Pebble companion app for Libre Health, the [open-source, local-only health tracker for Android](https://github.com/peerdavid/libre-health).
 
 Warning: Requires the LibreHealth Android companion app. There you can connect to pebble by clicking the upper right dots, then "Pebble".
 
